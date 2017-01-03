@@ -5,7 +5,7 @@
 This module is part of [Fagelmatare](https://github.com/Linkaan/Fagelmatare).  
 An embedded project created to learn Linux and C. Feeds and records birds using a PIR sensor.
 
-Copyright (C) 2016 Linus Styrén <linus122xbb@gmail.com>
+Copyright (C) 2016-2017 Linus Styrén <linus122xbb@gmail.com>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

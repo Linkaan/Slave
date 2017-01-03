@@ -6,7 +6,7 @@
  *****************************************************************************
  *  This file is part of Fågelmataren, an embedded project created to learn
  *  Linux and C. See <https://github.com/Linkaan/Fagelmatare>
- *  Copyright (C) 2015-2016 Linus Styrén
+ *  Copyright (C) 2015-2017 Linus Styrén
  *
  *  Fågelmataren is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
