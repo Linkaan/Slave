@@ -37,6 +37,40 @@
 #include <string.h>
 #include <errno.h>
 
+#include <fgevents.h>
+
+#include "common.h"
+#include "log.h"
+
+/* Forward declarations used in this file. */
+static int fg_handle_event (void *, struct fgevent *, struct fgevent *);
+
+/* Returns 1 on should writeback; 0 if not*/
+int
+fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
+{
+    int i;
+    struct thread_data *tdata = arg;
+
+    /* Handle error in fgevent */
+    if (fgev == NULL)
+      {
+        log_error ("%s\n", tdata->etdata.error);
+        return 0;
+      }
+
+    _log_debug ("eventid: %d\n", fgev->id);
+    for (i = 0; i < fgev->length; i++)
+      {
+        _log_debug ("%d\n", fgev->payload[i]);
+      }
+
+    ansev->id = 5;
+    ansev->writeback = 0;
+    ansev->length = 0;
+    return 1;
+}
+
 /* Non-zero means we should exit the program as soon as possible */
 static sem_t keep_going;
 
@@ -86,11 +120,33 @@ int
 main (void)
 {
 	ssize_t s;
+    struct fgevent fgev;
+    struct thread_data tdata;
 
 	/* Initialize keep_going as binary semaphore initially 0 */
     sem_init (&keep_going, 0, 0);
 
+    memset (&tdata, 0, sizeof (tdata));
+
     handle_signals ();
+
+    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event,
+                                    MASTER_IP, MASTER_PORT);
+    if (s != 0)
+      {
+        log_error ("error initializing fgevents");
+        return 1;
+      }
+
+    fgev.id = 1;
+    fgev.writeback = 1;
+    fgev.length = 6;
+    fgev.payload = malloc (sizeof (int32_t) * fgev.length);
+    for (int i = 0; i < fgev.length; i++)
+      {
+        fgev.payload[i] = (i*3)/2;
+      }
+    fg_send_event (tdata.etdata->bev, fgev);
 
     sem_wait (&keep_going);
 
@@ -101,5 +157,32 @@ main (void)
     /* **************************************************************** */
     sem_destroy (&keep_going);
 
+    fg_events_client_shutdown (tdata.etdata);
+
     return 0;
+}
+
+static int
+fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
+{
+    int i;
+    struct thread_data *tdata = arg;
+
+    /* Handle error in fgevent */
+    if (fgev == NULL)
+      {
+        log_error ("%s\n", tdata->etdata.error);
+        return 0;
+      }
+
+    _log_debug ("eventid: %d\n", fgev->id);
+    for (i = 0; i < fgev->length; i++)
+      {
+        _log_debug ("%d\n", fgev->payload[i]);
+      }
+
+    ansev->id = 5;
+    ansev->writeback = 0;
+    ansev->length = 0;
+    return 1;    
 }
