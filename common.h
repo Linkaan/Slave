@@ -31,6 +31,8 @@
 #include <stdint.h>
 #include <errno.h>
 
+#include <fgevents.h>
+
 /* Define _GNU_SOURCE for pthread_timedjoin_np and asprintf */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE

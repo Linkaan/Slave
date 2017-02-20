@@ -45,32 +45,6 @@
 /* Forward declarations used in this file. */
 static int fg_handle_event (void *, struct fgevent *, struct fgevent *);
 
-/* Returns 1 on should writeback; 0 if not*/
-int
-fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
-{
-    int i;
-    struct thread_data *tdata = arg;
-
-    /* Handle error in fgevent */
-    if (fgev == NULL)
-      {
-        log_error ("%s\n", tdata->etdata.error);
-        return 0;
-      }
-
-    _log_debug ("eventid: %d\n", fgev->id);
-    for (i = 0; i < fgev->length; i++)
-      {
-        _log_debug ("%d\n", fgev->payload[i]);
-      }
-
-    ansev->id = 5;
-    ansev->writeback = 0;
-    ansev->length = 0;
-    return 1;
-}
-
 /* Non-zero means we should exit the program as soon as possible */
 static sem_t keep_going;
 
@@ -130,7 +104,7 @@ main (void)
 
     handle_signals ();
 
-    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event,
+    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event, &tdata,
                                     MASTER_IP, MASTER_PORT);
     if (s != 0)
       {
@@ -146,7 +120,7 @@ main (void)
       {
         fgev.payload[i] = (i*3)/2;
       }
-    fg_send_event (tdata.etdata->bev, fgev);
+    fg_send_event (tdata.etdata.bev, &fgev);
 
     sem_wait (&keep_going);
 
@@ -157,7 +131,7 @@ main (void)
     /* **************************************************************** */
     sem_destroy (&keep_going);
 
-    fg_events_client_shutdown (tdata.etdata);
+    fg_events_client_shutdown (&tdata.etdata);
 
     return 0;
 }
@@ -171,7 +145,7 @@ fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
     /* Handle error in fgevent */
     if (fgev == NULL)
       {
-        log_error ("%s\n", tdata->etdata.error);
+        log_error_en (tdata->etdata.save_errno, tdata->etdata.error);
         return 0;
       }
 
