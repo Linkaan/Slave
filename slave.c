@@ -155,8 +155,13 @@ fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
         _log_debug ("%d\n", fgev->payload[i]);
       }
 
-    ansev->id = 5;
-    ansev->writeback = 0;
-    ansev->length = 0;
-    return 1;    
+    if (fgev->writeback)
+      {
+        ansev->id = 5;
+        ansev->writeback = 0;
+        ansev->length = 0;
+        return 1;
+      }
+      
+    return 0;
 }
