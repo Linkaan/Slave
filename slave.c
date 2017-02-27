@@ -120,7 +120,7 @@ main (void)
       {
         fgev.payload[i] = (i*3)/2;
       }
-    fg_send_event (tdata.etdata.bev, &fgev);
+    fg_send_event (&tdata.etdata, &fgev);
 
     sem_wait (&keep_going);
 
