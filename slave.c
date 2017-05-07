@@ -37,16 +37,26 @@
 #include <string.h>
 #include <errno.h>
 
+#include <events.h>
 #include <fgevents.h>
+#include <event2/event.h>
 
+#include "sensors.h"
 #include "common.h"
 #include "log.h"
 
 /* Forward declarations used in this file. */
+static void exit_cb (evutil_socket_t, short, void *);
+static void timer_cb (evutil_socket_t, short, void *);
+
+static int start_timer_event (struct event_base *, struct thread_data *);
+
 static int fg_handle_event (void *, struct fgevent *, struct fgevent *);
 
-/* Non-zero means we should exit the program as soon as possible */
-static sem_t keep_going;
+/* flag set if sensors initialized */
+static int is_sensors_enabled;
+
+static struct event *exev;
 
 /* Signal handler for SIGINT, SIGHUP and SIGTERM */
 static void
@@ -54,7 +64,10 @@ handle_sig (int signum)
 {
     struct sigaction new_action;
 
-    sem_post (&keep_going);
+    if (exev != NULL)
+        event_active (exev, EV_WRITE, 0);
+    else
+        exit (0);
 
     new_action.sa_handler = handle_sig;
     sigemptyset (&new_action.sa_mask);
@@ -93,46 +106,122 @@ handle_signals ()
 int
 main (void)
 {
-	ssize_t s;
-    struct fgevent fgev;
+	ssize_t s;    
     struct thread_data tdata;
-
-	/* Initialize keep_going as binary semaphore initially 0 */
-    sem_init (&keep_going, 0, 0);
+    struct event_base *base;
 
     memset (&tdata, 0, sizeof (tdata));
 
     handle_signals ();
 
     s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event, &tdata,
-                                    MASTER_IP, MASTER_PORT);
+                                    MASTER_IP, MASTER_PORT, FG_SLAVE);
     if (s != 0)
       {
         log_error ("error initializing fgevents");
         return 1;
       }
 
-    fgev.id = 1;
-    fgev.writeback = 1;
-    fgev.length = 6;
-    fgev.payload = malloc (sizeof (int32_t) * fgev.length);
-    for (int i = 0; i < fgev.length; i++)
-      {
-        fgev.payload[i] = (i*3)/2;
-      }
-    fg_send_event (&tdata.etdata, &fgev);
+    s = sensors_init ();
+    if (s != 0) is_sensors_enabled = 0;
+    else is_sensors_enabled = 1;
 
-    sem_wait (&keep_going);
+    base = event_base_new ();
+    if (base == NULL)
+      {
+        log_error ("error event_base_new");
+        return 1;
+      }
+
+    exev = event_new (base, -1, 0, exit_cb, base);
+    if (!exev || event_add (exev, NULL) < 0)
+        log_error ("could not create/add exit event");
+
+    s = start_timer_event (base, &tdata);
+    if (s != 0)
+      {
+        log_error ("error in start_timer_event");
+        return 1;
+      }
 
     /* **************************************************************** */
     /*                                                                  */
     /*                      Begin shutdown sequence                     */
     /*                                                                  */
     /* **************************************************************** */
-    sem_destroy (&keep_going);
 
     fg_events_client_shutdown (&tdata.etdata);
 
+    return 0;
+}
+
+static void
+exit_cb (evutil_socket_t sig, short events, void *arg)
+{
+    struct event_base *base = arg;
+
+    event_base_loopexit (base, NULL);
+}
+
+static void
+timer_cb (evutil_socket_t fd, short what, void *arg)
+{
+    struct IMUData imu_data;
+    struct thread_data *tdata = arg;
+    struct fgevent fgev;
+    int sensors_avail;
+
+    if (!is_sensors_enabled && sensors_init ())
+      {
+        is_sensors_enabled = 1;
+      }
+
+    sensors_avail = 0;
+    if (is_sensors_enabled)
+      {
+        memset (&imu_data, 0, sizeof (struct IMUData));
+
+        // grab 8 samples with 1000 µs inbetween
+        if (sensors_grab (&imu_data, 8, 10000))
+          {
+            log_error ("failed to grab sensor data");
+          }
+        else
+          {
+            sensors_avail = 1;
+          }
+      }
+
+    if (sensors_avail)
+      {
+        fgev.id = FG_SENSOR_DATA;
+        fgev.receiver = FG_MASTER;
+        fgev.writeback = 0;
+        fgev.length = 6;
+        fgev.payload = malloc (sizeof (int32_t) * fgev.length);
+
+        fgev.payload[0] = TEMPERATURE;
+        fgev.payload[1] = (int32_t) imu_data.temperature * 10.0;
+        fgev.payload[2] = PRESSURE;
+        fgev.payload[3] = (int32_t) imu_data.pressure * 10.0;
+        fgev.payload[4] = HUMIDITY;
+        fgev.payload[5] = (int32_t) imu_data.humidity * 10.0;
+
+        fg_send_event (&tdata->etdata, &fgev);
+      }
+}
+
+static int
+start_timer_event (struct event_base *base, struct thread_data *tdata)
+{
+    struct timeval t = { 10, 0 };
+    struct event *ev;
+
+    ev = event_new (base, -1, EV_PERSIST, timer_cb, tdata);
+    if (!ev || event_add (ev, &t) < 0)
+        return -1;
+
+    event_base_dispatch (base);
     return 0;
 }
 

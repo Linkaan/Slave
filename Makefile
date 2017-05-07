@@ -26,8 +26,8 @@ LINKS ?= -L.
 CFLAGS := $(INCLUDE) -std=gnu11 -g -Wall -Wextra -D _GNU_SOURCE
 LDFLAGS := $(LINKS) -lpthread -lfg-events -lfg-serializer -levent\
  -levent_pthreads -lz -lcrypto
-SOURCES := log.c slave.c
-HEADERS := log.h common.h
+SOURCES := sensors.c log.c slave.c
+HEADERS := HTS221.h LPS25H.h sensors.h log.h common.h
 OBJECTS=$(SOURCES:.c=.o)
 EXECUTABLE := fagelmatare-slave
 
