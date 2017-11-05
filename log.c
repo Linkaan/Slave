@@ -31,7 +31,7 @@
 void
 log_debug (const char *format, ...)
 {
-	char *timestamp = fetch_timestamp ();
+    char *timestamp = fetch_timestamp ();
     if (timestamp)
       {
 		    fprintf (stdout, "[DEBUG: %s] ", timestamp);		

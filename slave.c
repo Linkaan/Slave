@@ -26,6 +26,7 @@
 #include <semaphore.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <poll.h>
 #include <sys/timerfd.h>
 #include <sys/eventfd.h>
 #include <fcntl.h>
@@ -50,6 +51,8 @@ static void exit_cb (evutil_socket_t, short, void *);
 static void timer_cb (evutil_socket_t, short, void *);
 
 static int start_timer_event (struct event_base *, struct thread_data *);
+
+static int32_t query_temp (struct thread_data *);
 
 static int fg_handle_event (void *, struct fgevent *, struct fgevent *);
 
@@ -114,18 +117,20 @@ main (void)
 
     handle_signals ();
 
-    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event, &tdata,
-                                    MASTER_IP, MASTER_PORT, FG_SLAVE);
+    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event, NULL,
+                                    &tdata, MASTER_IP, MASTER_PORT, FG_SLAVE);
     if (s != 0)
       {
-        log_error ("error initializing fgevents");
-        return 1;
+        log_error_en (s, "error initializing fgevents");
       }
+
+    tdata.valid_temp = false;
 
     s = sensors_init ();
     if (s != 0) is_sensors_enabled = 0;
     else is_sensors_enabled = 1;
 
+    evthread_use_pthreads ();
     base = event_base_new ();
     if (base == NULL)
       {
@@ -166,7 +171,7 @@ exit_cb (evutil_socket_t sig, short events, void *arg)
 static void
 timer_cb (evutil_socket_t fd, short what, void *arg)
 {
-    struct IMUData imu_data;
+    struct SensorData sensor_data;
     struct thread_data *tdata = arg;
     struct fgevent fgev;
     int sensors_avail;
@@ -179,10 +184,10 @@ timer_cb (evutil_socket_t fd, short what, void *arg)
     sensors_avail = 0;
     if (is_sensors_enabled)
       {
-        memset (&imu_data, 0, sizeof (struct IMUData));
+        memset (&sensor_data, 0, sizeof (struct SensorData));
 
-        // grab 8 samples with 1000 µs inbetween
-        if (sensors_grab (&imu_data, 8, 10000))
+        // grab 8 samples with 100000 µs inbetween
+        if (sensors_grab (&sensor_data, 8, 100000))
           {
             log_error ("failed to grab sensor data");
           }
@@ -192,23 +197,45 @@ timer_cb (evutil_socket_t fd, short what, void *arg)
           }
       }
 
+    fgev.id = FG_SENSOR_DATA;
+    fgev.receiver = FG_MASTER;
+    fgev.writeback = 0;
+    fgev.length = 8;
+    fgev.payload = malloc (sizeof (int32_t) * fgev.length);
+
+    memset (fgev.payload, 0, sizeof (int32_t) * fgev.length);
+
+    int32_t tempx10 = query_temp (tdata);
+
+    if (tdata->valid_temp && ++tdata->c_invalidate_temp < MAX_TEMP_AGE)
+      {
+        fgev.payload[0] = OUTTEMP;
+        fgev.payload[1] = tempx10;
+      }    
+
     if (sensors_avail)
       {
-        fgev.id = FG_SENSOR_DATA;
-        fgev.receiver = FG_MASTER;
-        fgev.writeback = 0;
-        fgev.length = 6;
-        fgev.payload = malloc (sizeof (int32_t) * fgev.length);
-
-        fgev.payload[0] = TEMPERATURE;
-        fgev.payload[1] = (int32_t) imu_data.temperature * 10.0;
-        fgev.payload[2] = PRESSURE;
-        fgev.payload[3] = (int32_t) imu_data.pressure * 10.0;
-        fgev.payload[4] = HUMIDITY;
-        fgev.payload[5] = (int32_t) imu_data.humidity * 10.0;
-
-        fg_send_event (&tdata->etdata, &fgev);
+        fgev.payload[2] = INTEMP;
+        fgev.payload[3] = (int32_t) sensor_data.temperature * 10.0;
+        fgev.payload[4] = PRESSURE;
+        fgev.payload[5] = (int32_t) sensor_data.pressure * 10.0;
+        fgev.payload[6] = HUMIDITY;
+        fgev.payload[7] = (int32_t) sensor_data.humidity * 10.0;        
       }
+
+    fg_send_event (&tdata->etdata, &fgev);
+}
+
+static int32_t
+query_temp (struct thread_data *tdata)
+{
+    struct fgevent fgev;
+    fgev.id = FG_RETRIEVE_TEMP;
+    fgev.receiver = FG_AVR;
+    fgev.writeback = 1;
+    fgev.length = 0;
+    fg_send_event (&tdata->etdata, &fgev);
+    return tdata->fetched_temp;
 }
 
 static int
@@ -226,9 +253,9 @@ start_timer_event (struct event_base *base, struct thread_data *tdata)
 }
 
 static int
-fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
+fg_handle_event (void *arg, struct fgevent *fgev,
+                 struct fgevent * UNUSED(ansev))
 {
-    int i;
     struct thread_data *tdata = arg;
 
     /* Handle error in fgevent */
@@ -238,18 +265,19 @@ fg_handle_event (void *arg, struct fgevent *fgev, struct fgevent *ansev)
         return 0;
       }
 
-    _log_debug ("eventid: %d\n", fgev->id);
-    for (i = 0; i < fgev->length; i++)
+    switch (fgev->id)
       {
-        _log_debug ("%d\n", fgev->payload[i]);
-      }
-
-    if (fgev->writeback)
-      {
-        ansev->id = 5;
-        ansev->writeback = 0;
-        ansev->length = 0;
-        return 1;
+        case FG_TEMP_RESULT:
+            if (fgev->length > 0)
+              {
+                tdata->c_invalidate_temp = 0;
+                tdata->valid_temp = true;
+                tdata->fetched_temp = fgev->payload[0];                
+              }
+            break;
+        default:
+            _log_debug ("eventid: %d\n", fgev->id);
+            break;                                                          
       }
       
     return 0;

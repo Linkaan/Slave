@@ -215,7 +215,7 @@ sensors_init (void)
 }
 
 int
-sensors_grab(struct IMUData *data, int samplecount, int sample_usec)
+sensors_grab(struct SensorData *data, int samplecount, int sample_usec)
 {
     int res, ii;
     struct timespec ts;

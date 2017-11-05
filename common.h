@@ -43,6 +43,8 @@
 
 #define TIMESTAMP_MAX_LENGTH 32
 
+#define MAX_TEMP_AGE 10
+
 /* Temporary defs before config file is setup */
 #define MASTER_IP "10.0.1.1"
 #define MASTER_PORT 1337
@@ -54,6 +56,9 @@ extern const char *__progname;
 /* Common data structure used by threads */
 struct thread_data {
     struct fg_events_data etdata;
+    bool 				  valid_temp;
+    int32_t				  fetched_temp;
+    size_t 				  c_invalidate_temp;
 };
 
 #endif /* _COMMON_H_ */

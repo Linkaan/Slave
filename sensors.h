@@ -38,7 +38,7 @@
 #define I2C_SLAVE       0x0703        // ioctl:  Use this slave address
 
 // struct to store sensor readings for HTS221, LPS25H
-struct IMUData {
+struct SensorData {
     float pressure;
     float temperature;
     float humidity;
@@ -51,9 +51,9 @@ struct IMUData {
 int sensors_init (void);
 
 /*
- * Grab sensor readings and populate a IMUData struct with
+ * Grab sensor readings and populate a SensorData struct with
  * median value calculated from LPS25H and HTS221 sensors
  */
-int sensors_grab (struct IMUData *, int, int);
+int sensors_grab (struct SensorData *, int, int);
 
 #endif
