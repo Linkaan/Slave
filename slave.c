@@ -41,6 +41,11 @@
 #include <events.h>
 #include <fgevents.h>
 #include <event2/event.h>
+#include <event2/listener.h>
+#include <event2/bufferevent.h>
+#include <event2/buffer.h>
+#include <event2/event-config.h>
+#include <event2/thread.h>
 
 #include "sensors.h"
 #include "common.h"
@@ -117,30 +122,35 @@ main (void)
 
     handle_signals ();
 
-    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event, NULL,
-                                    &tdata, MASTER_IP, MASTER_PORT, FG_SLAVE);
-    if (s != 0)
-      {
-        log_error_en (s, "error initializing fgevents");
-      }
+    evthread_use_pthreads ();
 
     tdata.valid_temp = false;
 
     s = sensors_init ();
     if (s != 0) is_sensors_enabled = 0;
-    else is_sensors_enabled = 1;
+    else is_sensors_enabled = 1;    
 
-    evthread_use_pthreads ();
-    base = event_base_new ();
+    struct event_config *config = event_config_new ();
+
+    base = event_base_new_with_config (config);
     if (base == NULL)
       {
         log_error ("error event_base_new");
         return 1;
       }
 
+    event_config_free (config);
+
     exev = event_new (base, -1, 0, exit_cb, base);
     if (!exev || event_add (exev, NULL) < 0)
         log_error ("could not create/add exit event");
+
+    s = fg_events_client_init_inet (&tdata.etdata, &fg_handle_event, NULL,
+                                &tdata, MASTER_IP, MASTER_PORT, FG_SLAVE);
+    if (s != 0)
+      {
+        log_error_en (s, "error initializing fgevents");
+      }
 
     s = start_timer_event (base, &tdata);
     if (s != 0)
@@ -161,7 +171,7 @@ main (void)
 }
 
 static void
-exit_cb (evutil_socket_t sig, short events, void *arg)
+exit_cb (evutil_socket_t UNUSED(sig), short UNUSED(events), void *arg)
 {
     struct event_base *base = arg;
 
@@ -169,7 +179,7 @@ exit_cb (evutil_socket_t sig, short events, void *arg)
 }
 
 static void
-timer_cb (evutil_socket_t fd, short what, void *arg)
+timer_cb (evutil_socket_t UNUSED(fd), short UNUSED(what), void *arg)
 {
     struct SensorData sensor_data;
     struct thread_data *tdata = arg;
